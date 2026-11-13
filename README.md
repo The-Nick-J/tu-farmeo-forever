@@ -1,6 +1,6 @@
 # Tu Farmeo Forever
 
-Alfa 0.1.1 para WoW Forever (interfaz 16001). Muestra zonas sombreadas y un HUD con objetivos, botín y sesiones manuales.
+Alfa 0.1.2 para WoW Forever (interfaz 16001). Muestra zonas sombreadas y un HUD con objetivos, botín y sesiones manuales.
 
 ## Instalar
 
@@ -10,6 +10,7 @@ Descarga el ZIP de la versión o copia la carpeta del repositorio a `World of Wa
 
 - Abre con M y entra al mapa de Crestagrana, Los Humedales o Vega de Tuercespina.
 - Pasa el mouse sobre el sombreado para ver la ficha. Pulsa el marcador de moneda para elegir el spot.
+- En OpenMap, la vista alejada muestra una moneda por farmeo. Acércate para ver los contornos. La casilla **Farmeos** en el borde superior del mapa oculta todas las marcas y guarda tu preferencia.
 - `/tf` abre o cierra el HUD. También puedes escoger el spot desde el HUD con **Siguiente**.
 - Inicia una sesión, farmea y pulsa **Detener**. Ingresa el oro directo más el de vendedor y, opcionalmente, el valor estimado de AH **ya descontada la comisión**. Usa decimales en oro, por ejemplo 0,75 para 75 de plata.
 - El promedio usa todo el tiempo de las sesiones guardadas. La AH estimada se suma al oro directo y de vendedor y se muestra como estimación. Las sesiones y preferencias se guardan localmente en SavedVariables.

@@ -191,12 +191,25 @@ local function buildMap()
     owner:SetSize(1, 1)
     owner:SetPoint("TOPRIGHT")
     local groups = {}
-    local visibleMap, lastWidth, lastHeight, lastStitched, lastLevel, hovered
+    local visibleMap, lastWidth, lastHeight, lastStitched, lastLevel, lastScale, hovered
+    local toggle = CreateFrame("CheckButton", nil, map, "UICheckButtonTemplate")
+    toggle:SetSize(24, 24)
+    toggle:SetPoint("TOPRIGHT", -50, -3)
+    local toggleLabel = toggle:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    toggleLabel:SetPoint("RIGHT", toggle, "LEFT", -2, 0)
+    toggleLabel:SetText("Farmeos")
+    toggle:SetChecked(not db.hideMapSpots)
 
     local function hideTooltip()
         if GameTooltip:IsOwned(owner) then GameTooltip:Hide() end
         hovered = nil
     end
+    toggle:SetScript("OnClick", function(self)
+        db.hideMapSpots = not self:GetChecked()
+        overlay:SetShown(not db.hideMapSpots)
+        hideTooltip()
+    end)
+    overlay:SetShown(not db.hideMapSpots)
 
     local function tooltip(index)
         local spot = spots[index]
@@ -212,17 +225,29 @@ local function buildMap()
         GameTooltip:Show()
     end
 
-    local bands = 30
+    local bands = 64
     for index, spot in ipairs(spots) do
         local group = CreateFrame("Frame", nil, overlay)
         group:SetAllPoints()
         group:Hide()
         group.regions = {}
         groups[index] = group
-        for _, area in ipairs(spot.areas) do
-            local region = {coords = area, strips = {}}
+        for areaIndex, area in ipairs(spot.areas) do
+            local region = {coords = area, strips = {}, borders = {}, outline = spot.outlines and spot.outlines[areaIndex]}
+            if not region.outline then
+                region.outline = {}
+                for n = 1, 32 do
+                    local angle = n * 2 * math.pi / 32
+                    region.outline[n] = {area[1] + area[3] * math.cos(angle), area[2] + area[4] * math.sin(angle)}
+                end
+            end
+            for n = 1, #region.outline do
+                local line = group:CreateLine(nil, "OVERLAY")
+                line:SetColorTexture(spot.color[1], spot.color[2], spot.color[3], .95)
+                region.borders[n] = line
+            end
             table.insert(group.regions, region)
-            for n = 1, bands do
+            for n = 1, bands * 2 do
                 local strip = group:CreateTexture(nil, "ARTWORK")
                 strip:SetColorTexture(spot.color[1], spot.color[2], spot.color[3], .42)
                 region.strips[n] = strip
@@ -248,34 +273,74 @@ local function buildMap()
         if u and v then return api.MapFromWorld(mapID, u, v) end
     end
 
-    local function layout(mapID, width, height, api, level)
+    local function crossings(points, y)
+        local xs = {}
+        for n, a in ipairs(points) do
+            local b = points[n % #points + 1]
+            if (a[2] > y) ~= (b[2] > y) then
+                xs[#xs + 1] = a[1] + (y - a[2]) * (b[1] - a[1]) / (b[2] - a[2])
+            end
+        end
+        table.sort(xs)
+        return xs
+    end
+
+    local function layout(mapID, width, height, api, level, scale, viewWidth)
         overlay:SetFrameLevel(level)
         for index, group in ipairs(groups) do
             local sourceMap = spots[index].map
             group:SetFrameLevel(level + 1)
             group:SetShown(sourceMap == mapID or api ~= nil)
             if group:IsShown() then
-                for _, region in ipairs(group.regions) do
+                for areaIndex, region in ipairs(group.regions) do
                     local cx, cy, rawRX, rawRY = unpack(region.coords)
                     local x, y = project(api, sourceMap, mapID, cx, cy)
                     local edgeX, edgeY = project(api, sourceMap, mapID, cx + rawRX, cy + rawRY)
                     local rx = x and edgeX and math.abs(edgeX - x)
                     local ry = y and edgeY and math.abs(edgeY - y)
                     local valid = rx and ry and rx > 0 and ry > 0
-                    region.projected = valid and {x, y, rx, ry} or nil
-                    region.marker:SetShown(not not valid)
+                    local detailed = valid and (not api or width * scale * rx / rawRX >= viewWidth * .8)
+                    region.projected = nil
+                    region.marker:SetShown(not not (valid and (detailed or areaIndex == 1)))
+                    region.marker:SetSize(14 / scale, 14 / scale)
                     region.marker:SetFrameLevel(level + 2)
-                    for _, strip in ipairs(region.strips) do strip:SetShown(not not valid) end
+                    for _, strip in ipairs(region.strips) do strip:Hide() end
+                    for _, line in ipairs(region.borders) do line:Hide() end
                     if valid then
                         region.marker:ClearAllPoints()
                         region.marker:SetPoint("CENTER", overlay, "TOPLEFT", x * width, -y * height)
-                        for n, strip in ipairs(region.strips) do
-                            local fraction = (2 * n - 1) / bands - 1
-                            local halfWidth = rx * math.sqrt(1 - fraction * fraction)
-                            strip:ClearAllPoints()
-                            strip:SetPoint("TOPLEFT", overlay, "TOPLEFT",
-                                (x - halfWidth) * width, -(y + ry * (fraction - 1 / bands)) * height)
-                            strip:SetSize(2 * halfWidth * width, 2 * ry * height / bands + .05)
+                    end
+                    if detailed then
+                        local points, top, bottom = {}, math.huge, -math.huge
+                        for n, point in ipairs(region.outline) do
+                            local px = x + (point[1] - cx) * rx / rawRX
+                            local py = y + (point[2] - cy) * ry / rawRY
+                            points[n] = {px, py}
+                            top, bottom = math.min(top, py), math.max(bottom, py)
+                        end
+                        region.projected = points
+                        local step, used = (bottom - top) / bands, 0
+                        for n = 1, bands do
+                            local py = top + (n - 1) * step
+                            local xs = crossings(points, py + step / 2)
+                            for i = 1, #xs - 1, 2 do
+                                used = used + 1
+                                local strip = region.strips[used]
+                                if strip then
+                                    strip:ClearAllPoints()
+                                    strip:SetPoint("TOPLEFT", overlay, "TOPLEFT", xs[i] * width, -py * height)
+                                    strip:SetSize((xs[i + 1] - xs[i]) * width, step * height)
+                                    strip:Show()
+                                end
+                            end
+                        end
+                        for n, a in ipairs(points) do
+                            local b = points[n % #points + 1]
+                            local line = region.borders[n]
+                            line:SetThickness(2 / scale)
+                            line:SetStartPoint("TOPLEFT", overlay, a[1] * width, -a[2] * height)
+                            line:SetEndPoint("TOPLEFT", overlay, b[1] * width, -b[2] * height)
+                            line:Show()
                         end
                     end
                 end
@@ -286,20 +351,25 @@ local function buildMap()
 
     local elapsedTotal = 0
     watcher:SetScript("OnUpdate", function(_, elapsed)
+        if db.hideMapSpots then return end
         elapsedTotal = elapsedTotal + elapsed
         if elapsedTotal < .05 then return end
         elapsedTotal = 0
         local mapID = map:GetMapID()
         local width, height = canvas:GetSize()
+        local view = map.ScrollContainer or map
+        local scale = canvas:GetEffectiveScale() / view:GetEffectiveScale()
+        if scale <= 0 then return end
         if not mapID or width <= 0 or height <= 0 then return end
         local api = _G.OpenMapAPI
         local stitched = api and api.IsStitched and api.IsStitched()
         local artLevel = stitched and api.ArtTopLevel and api.ArtTopLevel()
         local level = math.max(canvas:GetFrameLevel() + 4, artLevel and artLevel + 1 or 0)
         if visibleMap ~= mapID or lastWidth ~= width or lastHeight ~= height
-            or lastStitched ~= stitched or lastLevel ~= level then
+            or lastStitched ~= stitched or lastLevel ~= level or lastScale ~= scale then
             visibleMap, lastWidth, lastHeight, lastStitched, lastLevel = mapID, width, height, stitched, level
-            layout(mapID, width, height, stitched and api or nil, level)
+            lastScale = scale
+            layout(mapID, width, height, stitched and api or nil, level, view:GetWidth())
         end
         if not map.GetNormalizedCursorPosition then return end
         local x, y
@@ -313,10 +383,14 @@ local function buildMap()
         for index, group in ipairs(groups) do
             if group:IsShown() then
                 for _, region in ipairs(group.regions) do
-                    local cx, cy, rx, ry
-                    if region.projected then cx, cy, rx, ry = unpack(region.projected) end
-                    if cx and (region.marker:IsMouseOver() or (x and y and
-                        ((x - cx) / rx)^2 + ((y - cy) / ry)^2 <= 1)) then
+                    local inside
+                    if x and y and region.projected then
+                        local xs = crossings(region.projected, y)
+                        for n = 1, #xs - 1, 2 do
+                            if x >= xs[n] and x <= xs[n + 1] then inside = true; break end
+                        end
+                    end
+                    if inside or (region.marker:IsVisible() and region.marker:IsMouseOver()) then
                         hit = index
                         break
                     end
