@@ -373,9 +373,8 @@ local function buildMap()
         local level = math.max(canvas:GetFrameLevel() + 4, artLevel and artLevel + 1 or 0)
         if visibleMap ~= mapID or lastWidth ~= width or lastHeight ~= height
             or lastStitched ~= stitched or lastLevel ~= level or lastScale ~= scale then
-            visibleMap, lastWidth, lastHeight, lastStitched, lastLevel = mapID, width, height, stitched, level
-            lastScale = scale
-            layout(mapID, width, height, stitched and api or nil, level, view:GetWidth())
+            layout(mapID, width, height, stitched and api or nil, level, scale, view:GetWidth())
+            visibleMap, lastWidth, lastHeight, lastStitched, lastLevel, lastScale = mapID, width, height, stitched, level, scale
         end
         if not map.GetNormalizedCursorPosition then return end
         local x, y

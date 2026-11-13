@@ -1,6 +1,6 @@
 # Tu Farmeo Forever
 
-Alfa 0.1.3 para WoW Forever (interfaz 16001). Muestra zonas sombreadas y un HUD con objetivos, botín y sesiones manuales.
+Alfa 0.1.4 para WoW Forever (interfaz 16001). Muestra zonas sombreadas y un HUD con objetivos, botín y sesiones manuales.
 
 ## Instalar
 
