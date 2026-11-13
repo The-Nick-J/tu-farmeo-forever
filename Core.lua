@@ -191,7 +191,7 @@ local function buildMap()
     owner:SetSize(1, 1)
     owner:SetPoint("TOPRIGHT")
     local groups = {}
-    local visibleMap, lastWidth, lastHeight, hovered
+    local visibleMap, lastWidth, lastHeight, lastStitched, lastLevel, hovered
 
     local function hideTooltip()
         if GameTooltip:IsOwned(owner) then GameTooltip:Hide() end
@@ -224,7 +224,7 @@ local function buildMap()
             table.insert(group.regions, region)
             for n = 1, bands do
                 local strip = group:CreateTexture(nil, "ARTWORK")
-                strip:SetColorTexture(spot.color[1], spot.color[2], spot.color[3], .25)
+                strip:SetColorTexture(spot.color[1], spot.color[2], spot.color[3], .42)
                 region.strips[n] = strip
             end
             local marker = CreateFrame("Button", nil, group)
@@ -241,21 +241,42 @@ local function buildMap()
         end
     end
 
-    local function layout(mapID, width, height)
+    local function project(api, sourceMap, mapID, x, y)
+        if sourceMap == mapID then return x, y end
+        if not api or not api.WorldFromMap or not api.MapFromWorld then return end
+        local u, v = api.WorldFromMap(sourceMap, x, y)
+        if u and v then return api.MapFromWorld(mapID, u, v) end
+    end
+
+    local function layout(mapID, width, height, api, level)
+        overlay:SetFrameLevel(level)
         for index, group in ipairs(groups) do
-            group:SetShown(spots[index].map == mapID)
+            local sourceMap = spots[index].map
+            group:SetFrameLevel(level + 1)
+            group:SetShown(sourceMap == mapID or api ~= nil)
             if group:IsShown() then
                 for _, region in ipairs(group.regions) do
-                    local x, y, rx, ry = unpack(region.coords)
-                    region.marker:ClearAllPoints()
-                    region.marker:SetPoint("CENTER", overlay, "TOPLEFT", x * width, -y * height)
-                    for n, strip in ipairs(region.strips) do
-                        local fraction = (2 * n - 1) / bands - 1
-                        local halfWidth = rx * math.sqrt(1 - fraction * fraction)
-                        strip:ClearAllPoints()
-                        strip:SetPoint("TOPLEFT", overlay, "TOPLEFT",
-                            (x - halfWidth) * width, -(y + ry * (fraction - 1 / bands)) * height)
-                        strip:SetSize(2 * halfWidth * width, 2 * ry * height / bands + .05)
+                    local cx, cy, rawRX, rawRY = unpack(region.coords)
+                    local x, y = project(api, sourceMap, mapID, cx, cy)
+                    local edgeX, edgeY = project(api, sourceMap, mapID, cx + rawRX, cy + rawRY)
+                    local rx = x and edgeX and math.abs(edgeX - x)
+                    local ry = y and edgeY and math.abs(edgeY - y)
+                    local valid = rx and ry and rx > 0 and ry > 0
+                    region.projected = valid and {x, y, rx, ry} or nil
+                    region.marker:SetShown(not not valid)
+                    region.marker:SetFrameLevel(level + 2)
+                    for _, strip in ipairs(region.strips) do strip:SetShown(not not valid) end
+                    if valid then
+                        region.marker:ClearAllPoints()
+                        region.marker:SetPoint("CENTER", overlay, "TOPLEFT", x * width, -y * height)
+                        for n, strip in ipairs(region.strips) do
+                            local fraction = (2 * n - 1) / bands - 1
+                            local halfWidth = rx * math.sqrt(1 - fraction * fraction)
+                            strip:ClearAllPoints()
+                            strip:SetPoint("TOPLEFT", overlay, "TOPLEFT",
+                                (x - halfWidth) * width, -(y + ry * (fraction - 1 / bands)) * height)
+                            strip:SetSize(2 * halfWidth * width, 2 * ry * height / bands + .05)
+                        end
                     end
                 end
             end
@@ -270,23 +291,32 @@ local function buildMap()
         elapsedTotal = 0
         local mapID = map:GetMapID()
         local width, height = canvas:GetSize()
-        if width <= 0 or height <= 0 then return end
-        if visibleMap ~= mapID or lastWidth ~= width or lastHeight ~= height then
-            visibleMap, lastWidth, lastHeight = mapID, width, height
-            layout(mapID, width, height)
+        if not mapID or width <= 0 or height <= 0 then return end
+        local api = _G.OpenMapAPI
+        local stitched = api and api.IsStitched and api.IsStitched()
+        local artLevel = stitched and api.ArtTopLevel and api.ArtTopLevel()
+        local level = math.max(canvas:GetFrameLevel() + 4, artLevel and artLevel + 1 or 0)
+        if visibleMap ~= mapID or lastWidth ~= width or lastHeight ~= height
+            or lastStitched ~= stitched or lastLevel ~= level then
+            visibleMap, lastWidth, lastHeight, lastStitched, lastLevel = mapID, width, height, stitched, level
+            layout(mapID, width, height, stitched and api or nil, level)
         end
         if not map.GetNormalizedCursorPosition then return end
         local x, y
-        if not map.IsCanvasMouseFocus or map:IsCanvasMouseFocus() then
+        if stitched and api.CursorPosition and api.MapFromWorld then
+            local u, v = api.CursorPosition()
+            if u and v then x, y = api.MapFromWorld(mapID, u, v) end
+        elseif not map.IsCanvasMouseFocus or map:IsCanvasMouseFocus() then
             x, y = map:GetNormalizedCursorPosition()
         end
         local hit
         for index, group in ipairs(groups) do
             if group:IsShown() then
                 for _, region in ipairs(group.regions) do
-                    local cx, cy, rx, ry = unpack(region.coords)
-                    if region.marker:IsMouseOver() or (x and y and
-                        ((x - cx) / rx)^2 + ((y - cy) / ry)^2 <= 1) then
+                    local cx, cy, rx, ry
+                    if region.projected then cx, cy, rx, ry = unpack(region.projected) end
+                    if cx and (region.marker:IsMouseOver() or (x and y and
+                        ((x - cx) / rx)^2 + ((y - cy) / ry)^2 <= 1)) then
                         hit = index
                         break
                     end
