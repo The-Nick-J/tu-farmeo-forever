@@ -1,0 +1,9 @@
+## Interface: 16001
+## Title: Tu Farmeo Forever
+## Notes: Zonas de farmeo y sesiones locales.
+## Version: 0.1.0-alpha
+## OptionalDeps: OpenMap
+## SavedVariables: TuFarmeoForeverDB
+
+Spots.lua
+Core.lua
