@@ -178,6 +178,7 @@ local function buildHUD()
     refresh()
 end
 
+local syncMapVisibility
 local function buildMap()
     local map = WorldMapFrame
     if not map or not map.GetCanvas then return false end
@@ -194,7 +195,8 @@ local function buildMap()
     local visibleMap, lastWidth, lastHeight, lastStitched, lastLevel, lastScale, hovered
     local toggle = CreateFrame("CheckButton", nil, map, "UICheckButtonTemplate")
     toggle:SetSize(24, 24)
-    toggle:SetPoint("TOPRIGHT", -50, -3)
+    toggle:SetPoint("TOPLEFT", map.ScrollContainer or map, "TOPLEFT", 78, -8)
+    toggle:SetFrameStrata("DIALOG")
     local toggleLabel = toggle:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     toggleLabel:SetPoint("RIGHT", toggle, "LEFT", -2, 0)
     toggleLabel:SetText("Farmeos")
@@ -204,10 +206,14 @@ local function buildMap()
         if GameTooltip:IsOwned(owner) then GameTooltip:Hide() end
         hovered = nil
     end
-    toggle:SetScript("OnClick", function(self)
-        db.hideMapSpots = not self:GetChecked()
+    local function syncVisibility()
+        toggle:SetChecked(not db.hideMapSpots)
         overlay:SetShown(not db.hideMapSpots)
         hideTooltip()
+    end
+    toggle:SetScript("OnClick", function(self)
+        db.hideMapSpots = not self:GetChecked()
+        syncVisibility()
     end)
     overlay:SetShown(not db.hideMapSpots)
 
@@ -358,8 +364,8 @@ local function buildMap()
         local mapID = map:GetMapID()
         local width, height = canvas:GetSize()
         local view = map.ScrollContainer or map
-        local scale = canvas:GetEffectiveScale() / view:GetEffectiveScale()
-        if scale <= 0 then return end
+        local scale = view.GetCanvasScale and view:GetCanvasScale() or 1
+        if not scale or scale <= 0 then scale = 1 end
         if not mapID or width <= 0 or height <= 0 then return end
         local api = _G.OpenMapAPI
         local stitched = api and api.IsStitched and api.IsStitched()
@@ -407,6 +413,7 @@ local function buildMap()
         end
     end)
     watcher:SetScript("OnHide", hideTooltip)
+    syncMapVisibility = syncVisibility
     return true
 end
 
@@ -423,7 +430,14 @@ init:SetScript("OnEvent", function(_, event, name)
         buildEditor()
         buildHUD()
         SLASH_TUFARMEOFOREVER1 = "/tf"
-        SlashCmdList.TUFARMEOFOREVER = function()
+        SlashCmdList.TUFARMEOFOREVER = function(message)
+            local mode = message:match("^%s*mapa%s+(%a+)%s*$")
+            if mode == "on" or mode == "off" then
+                db.hideMapSpots = mode == "off"
+                if syncMapVisibility then syncMapVisibility() end
+                print("Tu Farmeo Forever: marcas " .. (db.hideMapSpots and "ocultas." or "activadas."))
+                return
+            end
             if hud:IsShown() then hud:Hide() else hud:Show(); refresh() end
         end
     end
